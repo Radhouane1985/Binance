@@ -2,6 +2,10 @@
 
 This Python script connects to the Binance Futures WebSocket to monitor trades and determine whether buyers or sellers are more powerful based on trade volumes. The script calculates the average buy and sell volumes and the number of large trades to provide insights into market dynamics.
 
+## Use
+
+The output of this script can be very helpful when it comes to scalping at potential Supports and Resistances. 
+
 ## Features
 
 - Connects to Binance Futures WebSocket for real-time trade data.
