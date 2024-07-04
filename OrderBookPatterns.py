@@ -16,6 +16,8 @@ class OrderBookPatterns:
         self.short_term_sell_trades = deque(maxlen=short_term_window_size)
         self.big_buy_trades = deque(maxlen=5)
         self.big_sell_trades = deque(maxlen=5)
+        self.support_levels = deque(maxlen=5)
+        self.resistance_levels = deque(maxlen=5)
         self.start_time = time.time()
 
     def on_message(self, ws, message):
@@ -32,11 +34,14 @@ class OrderBookPatterns:
             self.short_term_sell_trades.append(trade_time)
             if trade_volume >= self.min_trade_volume:
                 self.big_sell_trades.append((trade_time, trade_price, trade_volume))
+                self.track_support_and_resistance(trade_price, 'sell')
         else:
             self.long_term_buy_trades.append(trade_time)
             self.short_term_buy_trades.append(trade_time)
             if trade_volume >= self.min_trade_volume:
                 self.big_buy_trades.append((trade_time, trade_price, trade_volume))
+                self.track_support_and_resistance(trade_price, 'buy')
+
 
     def calculate_order_speed(self, trades):
         if len(trades) < 2:
@@ -60,6 +65,20 @@ class OrderBookPatterns:
 
     def get_big_trades(self):
         return self.big_buy_trades, self.big_sell_trades
+
+    def track_support_and_resistance(self, price, trade_type):
+        if trade_type == 'sell':
+            # Check for support level
+            if all(price > self.long_term_sell_trades[-1] for _ in range(len(self.long_term_sell_trades))):
+                self.support_levels.append(price)
+        elif trade_type == 'buy':
+            # Check for resistance level
+            if all(price < self.long_term_buy_trades[-1] for _ in range(len(self.long_term_buy_trades))):
+                self.resistance_levels.append(price)
+
+
+    def get_support_and_resistance_levels(self):
+        return list(self.support_levels), list(self.resistance_levels)
 
     def on_error(self, ws, error, exception=None):
         print(f"Error: {error}")
@@ -86,7 +105,7 @@ if __name__ == "__main__":
     order_book_patterns = OrderBookPatterns(symbol, long_term_window_size, short_term_window_size, min_trade_volume)
     order_book_patterns.start()
 
-    # Example of accessing calculated order speeds and big trades periodically
+    # Example of accessing calculated order speeds, big trades, and support/resistance levels periodically
     while True:
         time.sleep(1)
         long_term_buy_speed, short_term_buy_speed, long_term_sell_speed, short_term_sell_speed = order_book_patterns.get_order_speeds()
@@ -100,5 +119,9 @@ if __name__ == "__main__":
         big_buy_trades, big_sell_trades = order_book_patterns.get_big_trades()
         print("Big Buy Trades:", big_buy_trades)
         print("Big Sell Trades:", big_sell_trades)
+        
+        support_levels, resistance_levels = order_book_patterns.get_support_and_resistance_levels()
+        print("Support Levels:", support_levels)
+        print("Resistance Levels:", resistance_levels)
         
         print('-'*50)
