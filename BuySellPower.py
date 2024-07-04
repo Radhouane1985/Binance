@@ -1,76 +1,104 @@
-import asyncio
-import websockets
+import websocket
 import json
+import time
 from collections import deque
-import numpy as np
-import datetime
+from threading import Thread
 
-# Set your parameters here
-MINIMUM_VOLUME = 5
-WINDOW_SIZE = 1000  # Number of recent trades to consider
-RECONNECT_DELAY = 5  # Delay in seconds before attempting to reconnect
-ROUNDING_NUMBER = 50  # Adjust this number as needed for rounding levels
+class OrderBookPatterns:
+    def __init__(self, symbol, long_term_window_size, short_term_window_size, min_trade_volume):
+        self.symbol = symbol.lower()
+        self.long_term_window_size = long_term_window_size
+        self.short_term_window_size = short_term_window_size
+        self.min_trade_volume = min_trade_volume
+        self.long_term_buy_trades = deque(maxlen=long_term_window_size)
+        self.short_term_buy_trades = deque(maxlen=short_term_window_size)
+        self.long_term_sell_trades = deque(maxlen=long_term_window_size)
+        self.short_term_sell_trades = deque(maxlen=short_term_window_size)
+        self.big_buy_trades = deque(maxlen=5)
+        self.big_sell_trades = deque(maxlen=5)
+        self.start_time = time.time()
 
-# Global variables
-buy_volumes = deque(maxlen=WINDOW_SIZE)
-sell_volumes = deque(maxlen=WINDOW_SIZE)
-current_price = None
+    def on_message(self, ws, message):
+        data = json.loads(message)
+        if data['e'] == 'aggTrade':
+            self.process_trade(data)
 
-def get_nearest_support(price):
-    return (price // ROUNDING_NUMBER) * ROUNDING_NUMBER
+    def process_trade(self, data):
+        trade_time = data['T'] / 1000.0  # Binance sends timestamps in milliseconds
+        trade_volume = float(data['q'])  # Trade volume
+        trade_price = float(data['p'])
+        if data['m']:  # m is True for a sell (market maker) trade, False for a buy (market taker) trade
+            self.long_term_sell_trades.append(trade_time)
+            self.short_term_sell_trades.append(trade_time)
+            if trade_volume >= self.min_trade_volume:
+                self.big_sell_trades.append((trade_time, trade_price, trade_volume))
+        else:
+            self.long_term_buy_trades.append(trade_time)
+            self.short_term_buy_trades.append(trade_time)
+            if trade_volume >= self.min_trade_volume:
+                self.big_buy_trades.append((trade_time, trade_price, trade_volume))
 
-def get_nearest_resistance(price):
-    return ((price + ROUNDING_NUMBER - 1) // ROUNDING_NUMBER) * ROUNDING_NUMBER
+    def calculate_order_speed(self, trades):
+        if len(trades) < 2:
+            return 0  # Not enough trades to calculate speed
+        time_span = trades[-1] - trades[0]
+        speed = time_span / len(trades)
+        return speed
 
-def check_power():
-    avg_buy_volume = np.mean(buy_volumes) if buy_volumes else 0
-    avg_sell_volume = np.mean(sell_volumes) if sell_volumes else 0
-    num_big_buyers = sum(v >= MINIMUM_VOLUME for v in buy_volumes)
-    num_big_sellers = sum(v >= MINIMUM_VOLUME for v in sell_volumes)
+    def get_order_speeds(self):
+        long_term_buy_speed = self.calculate_order_speed(self.long_term_buy_trades)
+        short_term_buy_speed = self.calculate_order_speed(self.short_term_buy_trades)
+        long_term_sell_speed = self.calculate_order_speed(self.long_term_sell_trades)
+        short_term_sell_speed = self.calculate_order_speed(self.short_term_sell_trades)
+        return long_term_buy_speed, short_term_buy_speed, long_term_sell_speed, short_term_sell_speed
 
-    global current_price
+    def interpret_speeds(self, long_term_speed, short_term_speed):
+        if short_term_speed < long_term_speed:
+            return "acceleration"
+        else:
+            return "deceleration"
 
-    if current_price:
-        if avg_buy_volume > avg_sell_volume and num_big_buyers > num_big_sellers:
-            support = get_nearest_support(current_price)
-            print(datetime.datetime.now())
-            print('support :', support)
-            #print(f"Buyers are more powerful. Nearest support: {support}")
-        elif avg_buy_volume < avg_sell_volume and num_big_buyers < num_big_sellers:
-            resistance = get_nearest_resistance(current_price)
-            print(datetime.datetime.now())
-            print('resistance', resistance)
-            #print(f"Sellers are more powerful. Nearest resistance: {resistance}")
+    def get_big_trades(self):
+        return self.big_buy_trades, self.big_sell_trades
 
-async def handle_socket():
-    uri = "wss://fstream.binance.com/ws/btcusdt@trade"
-    while True:
-        try:
-            async with websockets.connect(uri) as websocket:
-                print("Connected to WebSocket")
-                while True:
-                    data = await websocket.recv()
-                    trade = json.loads(data)
-                    trade_volume = float(trade['q'])
-                    is_buyer_maker = trade['m']
-                    global current_price
-                    current_price = float(trade['p'])
+    def on_error(self, ws, error, exception=None):
+        print(f"Error: {error}")
 
-                    if is_buyer_maker:
-                        sell_volumes.append(trade_volume)
-                    else:
-                        buy_volumes.append(trade_volume)
+    def on_close(self, ws, close_status_code, close_msg):
+        print("WebSocket closed")
 
-                    check_power()
-        except (websockets.ConnectionClosed, websockets.InvalidStatusCode) as e:
-            print(f"Connection error: {e}. Reconnecting in {RECONNECT_DELAY} seconds...")
-            await asyncio.sleep(RECONNECT_DELAY)
-        except Exception as e:
-            print(f"Unexpected error: {e}. Reconnecting in {RECONNECT_DELAY} seconds...")
-            await asyncio.sleep(RECONNECT_DELAY)
-
-async def main():
-    await handle_socket()
+    def start(self):
+        self.ws = websocket.WebSocketApp(
+            f"wss://fstream.binance.com/ws/{self.symbol}@aggTrade",
+            on_message=self.on_message,
+            on_error=self.on_error,
+            on_close=self.on_close
+        )
+        self.ws_thread = Thread(target=self.ws.run_forever)
+        self.ws_thread.start()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    symbol = "btcusdt"
+    long_term_window_size = 1000
+    short_term_window_size = 100
+    min_trade_volume = 10  # Minimum volume to consider as a big trade
+
+    order_book_patterns = OrderBookPatterns(symbol, long_term_window_size, short_term_window_size, min_trade_volume)
+    order_book_patterns.start()
+
+    # Example of accessing calculated order speeds and big trades periodically
+    while True:
+        time.sleep(1)
+        long_term_buy_speed, short_term_buy_speed, long_term_sell_speed, short_term_sell_speed = order_book_patterns.get_order_speeds()
+        
+        buy_interpretation = order_book_patterns.interpret_speeds(long_term_buy_speed, short_term_buy_speed)
+        sell_interpretation = order_book_patterns.interpret_speeds(long_term_sell_speed, short_term_sell_speed)
+        
+        print("Buy Orders Speed Interpretation:", buy_interpretation)
+        print("Sell Orders Speed Interpretation:", sell_interpretation)
+        
+        big_buy_trades, big_sell_trades = order_book_patterns.get_big_trades()
+        print("Big Buy Trades:", big_buy_trades)
+        print("Big Sell Trades:", big_sell_trades)
+        
+        print('-'*50)
