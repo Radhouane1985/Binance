@@ -1,21 +1,7 @@
-# Binance Futures WebSocket Trade Monitor
+### OrderBookPatterns
+OrderBookPatterns is a Python class designed to analyze order flow patterns from Binance Futures using WebSocket. The class can calculate the speed of order flows, detect big trades, and interpret market acceleration or deceleration.
 
-This Python script connects to the Binance Futures WebSocket to monitor trades and determine whether buyers or sellers are more powerful based on trade volumes. The script calculates the average buy and sell volumes and the number of large trades to provide insights into market dynamics.
-
-## Use
-
-The output of this script can be very helpful when it comes to scalping at potential Supports and Resistances. 
-
-## Features
-
-- Connects to Binance Futures WebSocket for real-time trade data.
-- Monitors trade volumes to determine buyer and seller power.
-- Automatically reconnects if the WebSocket connection is lost.
-- Configurable parameters for minimum volume and window size for trade monitoring.
-
-## Requirements
-
-- Python 3.7+
-- `websockets` library
-- `aiohttp` library
-- `numpy` library
+### Features
+Order Speed Calculation: Calculates the speed of order flow for both long-term and short-term windows.
+Market Speed Interpretation: Compares short-term and long-term order speeds to determine market acceleration or deceleration.
+Big Trade Detection: Identifies and records big trades based on a specified minimum volume threshold.
