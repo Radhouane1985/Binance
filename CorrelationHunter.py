@@ -1,7 +1,7 @@
 import pandas as pd
 
 class CorrelationHunter:
-    # Givinf a universe of cryptocurrencies, this class help compute realtime correlation matrix then rank cryptos based on that
+    # Giving a universe of cryptocurrencies, this class help compute realtime correlation matrix then rank cryptos based on that
     def __init__(self, symbols, data_collector):
         self.symbols = symbols
         self.data_collector = data_collector
